@@ -1682,19 +1682,19 @@ class MistralForQuietSTaR(MistralPreTrainedModel):
                 else:
                     nll_loss = None
 
-                # computer rewards
+                # compute rewards
                 thought_log_p = log_p_talk.gather(dim=-1,
                                                   index=labels[:, j + 1:j + self.n_true + 1].unsqueeze(-1)).squeeze(
                     -1)
                 base_log_p = log_p_init.gather(dim=-1,
                                                index=labels[:, j + 1:j + self.n_true + 1].unsqueeze(-1)).squeeze(-1)
-                rewards = (thought_log_p - base_log_p)
+                rewards = (thought_log_p - base_log_p).mean(dim=-1)
 
-                reinforce_loss = torch.zeros((thought_log_p.shape[0], thought_log_p.shape[1]), device=rewards.device)
-                thought_log_prob = F.log_softmax(self.lm_head(n_true_thought), dim=-1)
+                reinforce_loss = torch.zeros((thought_log_p.shape[0]), dtype=rewards.dtype, device=rewards.device)
+                thought_log_prob = F.log_softmax(self.lm_head(h_thought[:, j + 1:-self.n_true, :]), dim=-1)
                 thought_log_prob = thought_log_prob.gather(dim=-1,
                                                            index=thought_log_prob.argmax(dim=-1).unsqueeze(-1)).squeeze(
-                    -1)
+                    -1).mean(dim=-1)
                 positive_rewards_mask = rewards > 0
                 reinforce_loss[positive_rewards_mask] = -(
                         rewards[positive_rewards_mask] * thought_log_prob[positive_rewards_mask])
@@ -1702,7 +1702,7 @@ class MistralForQuietSTaR(MistralPreTrainedModel):
                 positive_reinforce_loss = reinforce_loss[positive_rewards_mask]
                 if positive_reinforce_loss.numel() > 0:
                     mean_reinforce_loss = positive_reinforce_loss.mean()
-                    total_loss += mean_reinforce_loss
+                    total_loss += mean_reinforce_loss * self.reinforce_temperature
                 else:
                     mean_reinforce_loss = None
 
